@@ -2,7 +2,6 @@
 
 ## Current Level *(Starting Point — Day 1)*
 
-3rd year B.Tech Computer Science student.
 
 | Skill | Prior Experience | Goal After 90 Days |
 |---|---|---|
