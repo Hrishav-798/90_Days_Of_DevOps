@@ -1,9 +1,5 @@
 # 🐧 Linux Practice — Day 04
 
-> **Date:** 2026-08-20
-> **Goal:** Hands-on practice with essential Linux commands for DevOps
-
----
 
 ## 📁 File & Directory Operations
 
@@ -80,4 +76,3 @@ ls -l filename
 
 ---
 
-*Part of the [90 Days of DevOps](../../README.md) challenge — 2026*
