@@ -16,7 +16,7 @@ uname -a
 
 ---
 
-## 2. Verify we can write to disk
+## 2. Verify I can write to disk
 
 ```bash
 mkdir -p /tmp/runbook-demo
@@ -101,14 +101,6 @@ journalctl -u ssh -n --no-pager
 3. **Enable on boot** – `sudo systemctl enable ssh` so it starts automatically.
 4. **Increase log detail** – set `LogLevel DEBUG3` in `/etc/ssh/sshd_config` and reload the daemon.
 5. **Deep debugging** – if connections still fail, attach `strace -p <PID>` to the `sshd` process.
-
----
-
-## 9. Checklist
-
-- [x] Runbook written and saved as `linux-troubleshooting-runbook.md`.
-- [x] Changes committed and pushed to the fork.
-- [ ] (Optional) Share a short LinkedIn update describing the drill.
 
 ---
 
