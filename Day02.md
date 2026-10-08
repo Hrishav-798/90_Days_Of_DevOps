@@ -223,3 +223,7 @@ rm -rf day02-practice
 ---
 
 > **Next Up (Day 03):** Moving from basics to Linux file permissions (`chmod`, `chown`), user management, and process control.
+
+---
+
+[← Day 01](Day01.md) | [Home](README.md) | [Day 03 →](Day03.md)

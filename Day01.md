@@ -49,3 +49,7 @@ For the next 90 days, I commit to staying disciplined and consistent. No shortcu
 3. **Document Everything:** Commit every lab, configuration, and bug fix to this repo.
 
 > *"Consistency beats intensity. 90 days of disciplined execution starts now."*
+
+---
+
+[Home](README.md) | [Day 02 →](Day02.md)
