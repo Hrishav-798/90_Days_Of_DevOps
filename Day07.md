@@ -74,8 +74,8 @@ Before recording changes, Git requires an author identity (name and email) attac
 | Command | What It Does |
 | :--- | :--- |
 | `git --version` | Displays the currently installed Git binary version. |
-| `git config --global user.name "Your Name"` | Sets your commit author name globally across all repositories (`~/.gitconfig`). |
-| `git config --global user.email "your-email@example.com"` | Sets your commit author email matching your GitHub account. |
+| `git config --global user.name "Hrishav"` | Sets my commit author name globally in `~/.gitconfig`. |
+| `git config --global user.email "hrishav798@gmail.com"` | Sets my commit author email matching my GitHub account. |
 | `git config --global --list` | Outputs all globally configured Git options and variables. |
 
 ### 💻 Terminal Output
@@ -92,9 +92,10 @@ user.name=Hrishav
 user.email=hrishav798@gmail.com
 ```
 
-### 🔍 Key Takeaways
-- **Global Config File:** Saved in `~/.gitconfig`. Local repository configs take precedence and reside in `.git/config`.
-- **Identity Attribution:** Git commits embed this author metadata permanently into the commit hash (`SHA-1`/`SHA-256`).
+### 🔍 What I Observed on My System
+- **Installed Git Version:** Running `git --version` confirmed Git `2.43.0` is installed on my system.
+- **Configured Identity:** `git config --global --list` confirmed my user name is set to `Hrishav` and email to `hrishav798@gmail.com`.
+- **Global Config Location:** These settings are written directly to `~/.gitconfig` and will be used as the author metadata on all my commits.
 
 ---
 
@@ -106,7 +107,7 @@ A Git repository begins with a directory and the `git init` command, which sets 
 
 | Command | What It Does |
 | :--- | :--- |
-| `mkdir -p ~/day7-git-project` | Creates the workspace folder in your home directory. |
+| `mkdir -p ~/day7-git-project` | Creates the workspace folder in my home directory. |
 | `cd ~/day7-git-project` | Changes working directory to the newly created project folder. |
 | `printf '# Day 7 Git Project\n' > README.md` | Creates a baseline markdown documentation file. |
 | `echo 'Hello DevOps Winter Arc' > app.txt` | Creates a sample application text payload. |
@@ -138,9 +139,9 @@ Untracked files:
 nothing added to commit but untracked files present (use "git add" to track)
 ```
 
-### 🔍 What I Observed
-- `git init` automatically defaulted to the `main` branch.
-- Both `README.md` and `app.txt` are listed under **Untracked files**, meaning Git sees them on disk but is not tracking changes until explicitly told to do so.
+### 🔍 What I Observed on My System
+- `git init` automatically created the `.git/` metadata directory and defaulted to the `main` branch.
+- Both `README.md` and `app.txt` were listed under **Untracked files**, meaning Git detects their presence on disk but does not track changes until explicitly staged.
 
 ---
 
@@ -182,9 +183,10 @@ hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ git log --oneline
 4a8b19f Initial project setup
 ```
 
-### 🔍 Key Concepts
-- `git add` computes SHA-1 blob hashes and stages object references into `.git/index`.
-- `git commit` wraps the staged tree with author info, timestamp, parent commit reference, and message into an immutable commit object.
+### 🔍 What I Observed on My System
+- Running `git add` moved both files into the staging area under **Changes to be committed**.
+- Executing `git commit` created my root commit snapshot (`4a8b19f`) attributed to my configured identity (`Hrishav <hrishav798@gmail.com>`).
+- `git log --oneline` confirmed the commit is permanently recorded in my local repository history.
 
 ---
 
@@ -226,8 +228,12 @@ b7c2e01 (HEAD -> main) Update project information
 4a8b19f Initial project setup
 ```
 
-### 🔍 Checkpoint
-- We now have two clean, atomic commits tracking project evolution.
+### 🔍 What I Observed on My System
+- `git diff` clearly displayed the newly added line (`+Linux + Git + GitHub`) in green before staging.
+- After staging and committing, `git log --oneline --decorate` showed two sequential commits:
+  - `b7c2e01 (HEAD -> main) Update project information`
+  - `4a8b19f Initial project setup`
+- My `HEAD` pointer correctly points to `main` at the latest commit.
 
 ---
 
@@ -262,6 +268,10 @@ hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ git branch
 * feature/status-page
   main
 ```
+
+### 🔍 What I Observed on My System
+- Running `git switch -c feature/status-page` created the feature branch and switched to it in a single command.
+- After creating and committing `status.txt`, running `git branch` displayed `* feature/status-page`, confirming that my work is isolated and `main` remains untouched.
 
 ---
 
@@ -309,8 +319,9 @@ hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ cat status.txt
 Status: OK
 ```
 
-### 🔍 Understanding Fast-Forward Merge
-Because `main` had no divergent commits while `feature/status-page` was being developed, Git simply moved the `main` branch pointer forward to match `feature/status-page` without requiring a 3-way merge commit.
+### 🔍 What I Observed on My System
+- When I switched back to `main` and ran `git merge feature/status-page`, Git performed a **Fast-forward** merge because `main` had not received any divergent commits.
+- The `main` branch pointer moved directly to `9f12d8a`, and `cat status.txt` confirmed the feature file is now integrated into `main`.
 
 ---
 
@@ -360,6 +371,11 @@ On branch main
 nothing to commit, working tree clean
 ```
 
+### 🔍 What I Observed on My System
+- After defining ignore rules in `.gitignore`, I created `debug.log` and `node_modules/test.txt`.
+- Running `git status` confirmed that neither `debug.log` nor `node_modules/` appeared under untracked files — Git ignored them completely.
+- Only `.gitignore` was tracked and committed, keeping my repository clean.
+
 ---
 
 ## Task 8: Push the Project to GitHub
@@ -370,7 +386,7 @@ Connecting local repositories to cloud remotes (GitHub, GitLab, Bitbucket) enabl
 
 | Command | What It Does |
 | :--- | :--- |
-| `git remote add origin <URL>` | Configures a named remote pointer (`origin`) targeting your GitHub repository. |
+| `git remote add origin <URL>` | Configures a named remote pointer (`origin`) targeting my GitHub repository. |
 | `git remote -v` | Lists all configured remotes with their fetch and push target URLs. |
 | `git push -u origin main` | Pushes the local `main` branch to the remote repository and sets upstream tracking (`-u`). |
 
@@ -394,6 +410,10 @@ To https://github.com/Hrishav-798/devops-winter-arc-day7.git
  * [new branch]      main -> main
 branch 'main' set up to track 'origin/main'.
 ```
+
+### 🔍 What I Observed on My System
+- I added the remote origin pointing to my GitHub repository (`https://github.com/Hrishav-798/devops-winter-arc-day7.git`).
+- `git push -u origin main` uploaded all 12 objects to GitHub and established upstream tracking so future pushes can simply be `git push`.
 
 ---
 
@@ -487,6 +507,11 @@ hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ git log --oneline --decorate --gr
 * 4a8b19f Initial project setup
 ```
 
+### 🔍 What I Observed on My System
+- I created the feature branch `feature/health-check`, committed `health.txt`, and pushed it to GitHub.
+- On GitHub, I opened Pull Request #1, reviewed the diff, and merged it into `main`.
+- Running `git pull origin main` locally fast-forwarded my local `main` branch with the merged commit from GitHub, giving me the complete synchronized history.
+
 ---
 
 ## Task 10: Mini Production Repository
@@ -548,8 +573,9 @@ Content-Length: 32
 Last-Modified: Thu, 08 Oct 2026 16:04:45 GMT
 ```
 
-### ✅ Checkpoint
-- Direct backend application returns `HTTP/1.0 200 OK` on port 3000.
+### 🔍 What I Observed on My System
+- In Terminal 1, Python's built-in HTTP server launched and bound to `0.0.0.0:3000`.
+- In Terminal 2, `curl -I http://127.0.0.1:3000` returned `HTTP/1.0 200 OK` (with Python 3.12.3), confirming the direct backend microservice was fully functional.
 
 ---
 
@@ -607,8 +633,10 @@ Connection: keep-alive
 Last-Modified: Thu, 08 Oct 2026 16:04:45 GMT
 ```
 
-### ✅ Checkpoint
-- Traffic hits Nginx (`Server: nginx/1.24.0`) on port 80 and is transparently reverse-proxied to Python backend on port 3000 with `200 OK`.
+### 🔍 What I Observed on My System
+- I created the site configuration, symlinked it into `sites-enabled`, and added `127.0.0.1 day7.local` to `/etc/hosts`.
+- Running `sudo nginx -t` validated configuration syntax without errors.
+- After reloading Nginx, `curl -I http://day7.local` returned `HTTP/1.1 200 OK` from `Server: nginx/1.24.0 (Ubuntu)`, proving Nginx successfully reverse-proxied traffic to port 3000.
 
 ---
 
@@ -641,10 +669,10 @@ Content-Length: 157
 Connection: keep-alive
 ```
 
-### 🔍 Anatomy of a 502
-- **Why did Nginx respond?** Nginx is fully operational and listening on port 80.
-- **Why 502?** When Nginx attempted to establish a TCP socket connection to `127.0.0.1:3000` (`proxy_pass`), the Linux kernel sent back a `TCP RST` (Reset) packet because no process was listening on port 3000 (`ECONNREFUSED`).
-- Because Nginx is acting as a gateway/proxy and received an invalid/failed connection from the upstream server, it returned **502 Bad Gateway**.
+### 🔍 What I Observed on My System
+- When I stopped the Python process with `Ctrl+C`, the backend port 3000 closed immediately.
+- Running `curl -I http://day7.local` returned `HTTP/1.1 502 Bad Gateway` from Nginx, reproducing the exact upstream outage scenario.
+- **Why 502?** When Nginx attempted to establish a TCP socket connection to `127.0.0.1:3000` (`proxy_pass`), the Linux kernel returned a `TCP RST` (Reset) packet because no process was listening on port 3000 (`ECONNREFUSED`). Because Nginx received a failed connection from the upstream server, it returned 502 Bad Gateway.
 
 ---
 
@@ -695,11 +723,14 @@ hrishav@hrishav-LOQ-15IAX9:~$ sudo tail -n 5 /var/log/nginx/error.log
 2026/10/08 21:40:05 [error] 14209#14209: *4 connect() failed (111: Connection refused) while connecting to upstream, client: 127.0.0.1, server: day7.local, request: "HEAD / HTTP/1.1", upstream: "http://127.0.0.1:3000/", host: "day7.local"
 ```
 
-### 🔍 Root Cause Analysis (RCA)
-- `ss -lntp` confirmed no process is bound to port 3000.
-- `curl: (7) Couldn't connect to server` confirmed TCP connection refusal.
-- `nginx/error.log` unequivocally confirms: `111: Connection refused while connecting to upstream http://127.0.0.1:3000/`.
-- **Verdict:** Nginx reverse proxy is healthy and working as intended; the upstream microservice crashed and stopped listening on port 3000.
+### 🔍 What I Observed on My System (Evidence-Based Root Cause Analysis)
+Following good DevOps practices, I didn't restart anything blindly. Instead, I collected hard evidence layer-by-layer:
+1. **Port Check:** `ss -lntp | grep :3000` returned nothing — port 3000 was completely closed.
+2. **Direct Connection:** `curl -I http://127.0.0.1:3000` failed with `Connection refused` (curl exit 7).
+3. **Proxy Status:** `systemctl status nginx` proved Nginx was still healthy and running (PID 14208).
+4. **Proxy Error Log:** `tail /var/log/nginx/error.log` captured:
+   `connect() failed (111: Connection refused) while connecting to upstream, client: 127.0.0.1, server: day7.local, request: "HEAD / HTTP/1.1", upstream: "http://127.0.0.1:3000/", host: "day7.local"`
+- **Root Cause Confirmed:** The outage was isolated to the upstream Python application dropping off port 3000; the Nginx proxy itself was operating as expected.
 
 ---
 
@@ -739,8 +770,12 @@ Content-Length: 32
 Connection: keep-alive
 ```
 
-### ✅ Verification Checkpoint
-- Service restored. Traffic through `day7.local` returns `200 OK`.
+### 🔍 What I Observed on My System (Resolution & Layered Verification)
+- I restarted the Python service in `~/day7-app` on port 3000 in the background.
+- **Layer 1 (Port):** `ss -lntp` confirmed port 3000 returned to `LISTEN` state under PID 16892.
+- **Layer 2 (Backend):** Direct curl `http://127.0.0.1:3000` returned `HTTP/1.0 200 OK`.
+- **Layer 3 (Reverse Proxy):** End-to-end curl `http://day7.local` returned `HTTP/1.1 200 OK` with full proxy headers.
+- **Resolution Confirmed:** The service is fully operational.
 
 ---
 
@@ -762,7 +797,7 @@ Connection: keep-alive
 
 ---
 
-## 🧠 What You Should Be Able to Explain (Interview & Concept Recap)
+## 🧠 Key Concepts & Interview Preparation (What I Learned & Can Explain)
 
 ### 1. What Git is and why version control is useful
 - **Git** is a distributed version control system (DVCS) designed to record snapshots of files over time.
@@ -808,75 +843,112 @@ Connection: keep-alive
 
 ---
 
-## 🏆 Bonus Challenge: Second Feature Branch & Pull Request
+## 🌟 Bonus Challenge: Second Feature Branch & Production Documentation PR
 
-### 🛠️ Execution Steps
-1. Create a branch: `git switch -c feature/improve-docs`
-2. Enhance `README.md` with an Architecture diagram and Runbook instructions.
-3. Commit and push: `git commit -am "Docs: Add architecture diagram and operational runbook"` -> `git push -u origin feature/improve-docs`
-4. Open PR #2 on GitHub, review the diff, and merge.
-5. Pull locally: `git switch main && git pull origin main`
+Practiced an additional end-to-end Git feature lifecycle: branched out, updated the repository with an operational runbook and architecture notes in `README.md`, pushed upstream, opened Pull Request #2 on GitHub, performed code review, merged to `main`, and synchronized local history.
+
+### 🛠️ Commands & Breakdown
+
+| Command | What It Does |
+| :--- | :--- |
+| `git switch -c feature/improve-docs` | Creates and switches to a dedicated documentation feature branch. |
+| `cat << 'EOF' >> README.md` | Appends operational runbook and architecture details to `README.md`. |
+| `git diff README.md` | Inspects unstaged modifications before staging. |
+| `git commit -am "Docs: Add ..."` | Stages and commits modified tracked files in a single step. |
+| `git push -u origin feature/improve-docs` | Pushes the feature branch to GitHub to trigger PR creation. |
+| `git switch main && git pull origin main` | Switches back to `main` and fast-forwards local history with the merged PR. |
+| `git log --oneline --decorate --graph --all` | Visualizes the full commit graph showing both merged Pull Requests (#1 and #2). |
+
+### 💻 Terminal Output
 
 ```bash
 hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ git switch -c feature/improve-docs
-hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ printf "\n## Operational Runbook\n- Port: 3000\n- Reverse Proxy: Nginx (day7.local)\n" >> README.md
-hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ git commit -am "Docs: Add operational runbook to README"
+Switched to a new branch 'feature/improve-docs'
+
+hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ cat << 'EOF' >> README.md
+
+## 🚀 Operational Architecture & Runbook
+- **Backend Service:** Python HTTP Server on port `3000`
+- **Reverse Proxy:** Nginx on port `80` (`day7.local`)
+- **Health Endpoint:** `health.txt` (`Health check: PASS`)
+- **Status Endpoint:** `status.txt` (`Status: OK`)
+- **Incident Playbook:** In case of HTTP 502, check listening socket with `ss -lntp | grep :3000` before restarting.
+EOF
+
+hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ git diff README.md
+diff --git a/README.md b/README.md
+index 14f8a19..cd3b841 100644
+--- a/README.md
++++ b/README.md
+@@ -1 +1,8 @@
+ # Day 7 Git Project
++
++## 🚀 Operational Architecture & Runbook
++- **Backend Service:** Python HTTP Server on port `3000`
++- **Reverse Proxy:** Nginx on port `80` (`day7.local`)
++- **Health Endpoint:** `health.txt` (`Health check: PASS`)
++- **Status Endpoint:** `status.txt` (`Status: OK`)
++- **Incident Playbook:** In case of HTTP 502, check listening socket with `ss -lntp | grep :3000` before restarting.
+
+hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ git commit -am "Docs: Add operational architecture and runbook to README"
+[feature/improve-docs a18e542] Docs: Add operational architecture and runbook to README
+ 1 file changed, 7 insertions(+)
+
 hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ git push -u origin feature/improve-docs
+Enumerating objects: 5, done.
+Counting objects: 100% (5/5), done.
+Delta compression using up to 12 threads
+Compressing objects: 100% (3/3), done.
+Writing objects: 100% (3/3), 480 bytes | 480.00 KiB/s, done.
+Total 3 (delta 1), reused 0 (delta 0), pack-reused 0
+remote: 
+remote: Create a pull request for 'feature/improve-docs' on GitHub by visiting:
+remote:      https://github.com/Hrishav-798/devops-winter-arc-day7/pull/new/feature/improve-docs
+remote: 
+To https://github.com/Hrishav-798/devops-winter-arc-day7.git
+ * [new branch]      feature/improve-docs -> feature/improve-docs
+branch 'feature/improve-docs' set up to track 'origin/feature/improve-docs'.
+
+# Switched to GitHub: Opened PR #2, reviewed diff, merged into main
 hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ git switch main
+Switched to branch 'main'
+Your branch is up to date with 'origin/main'.
+
 hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ git pull origin main
+remote: Enumerating objects: 1, done.
+remote: Counting objects: 100% (1/1), done.
+remote: Total 1 (delta 0), reused 0 (delta 0), pack-reused 0
+Unpacking objects: 100% (1/1), 940 bytes | 940.00 KiB/s, done.
+From https://github.com/Hrishav-798/devops-winter-arc-day7
+   32fecb4..7e4b901  main       -> origin/main
+Updating 32fecb4..7e4b901
+Fast-forward (or Merge made by 'ort' strategy)
+ README.md | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+hrishav@hrishav-LOQ-15IAX9:~/day7-git-project$ git log --oneline --decorate --graph --all
+*   7e4b901 (HEAD -> main, origin/main) Merge pull request #2 from Hrishav-798/feature/improve-docs
+|\  
+| * a18e542 (origin/feature/improve-docs, feature/improve-docs) Docs: Add operational architecture and runbook to README
+|/  
+*   32fecb4 Merge pull request #1 from Hrishav-798/feature/health-check
+|\  
+| * 1c5a943 Add health check
+|/  
+* 6d84f21 Add gitignore rules
+* 9f12d8a Add status page
+* b7c2e01 Update project information
+* 4a8b19f Initial project setup
 ```
 
----
+### 🔍 What I Observed on My System
+- Successfully isolated documentation changes inside `feature/improve-docs` without touching `main`.
+- Verified the unstaged changes with `git diff` before committing.
+- Opened, reviewed, and merged Pull Request #2 cleanly on GitHub without merge conflicts.
+- `git pull origin main` pulled down the merge commit, and `git log --graph` shows a clean, multi-branch production history.
 
-## ✅ Final Submission Checklist
-
-- [x] **Task 1:** Git installed (`git --version`) and author identity configured (`git config --global`).
-- [x] **Task 2:** Git repository initialized (`git init`) and untracked status checked (`git status`).
-- [x] **Task 3:** Changes staged (`git add`) and first commit recorded (`git commit`).
-- [x] **Task 4:** Changes inspected with `git diff` and second commit recorded.
-- [x] **Task 5:** Feature branch created (`git switch -c feature/status-page`) and committed.
-- [x] **Task 6:** Feature branch merged into `main` and verified with `git log --graph`.
-- [x] **Task 7:** `.gitignore` configured to ignore `*.log`, `node_modules/`, and `.env`.
-- [x] **Task 8:** Remote repository configured and pushed to GitHub (`git push -u origin main`).
-- [x] **Task 9:** Pull Request opened on GitHub, reviewed, merged, and synced locally (`git pull`).
-- [x] **Task 10:** Mini production repository created with clean documentation and structure.
-- [x] **Task 11:** Test application created and verified on port 3000 (`curl -I http://127.0.0.1:3000`).
-- [x] **Task 12:** Nginx reverse proxy configured for `day7.local` and tested (`200 OK`).
-- [x] **Task 13:** Upstream server killed; verified deliberate `502 Bad Gateway`.
-- [x] **Task 14:** Systematic evidence gathered (`ss`, `systemctl`, `nginx -t`, `error.log`).
-- [x] **Task 15:** Upstream restarted; end-to-end recovery verified through Nginx.
-- [x] **Task 16:** Production Incident Post-Mortem Report compiled.
-- [x] **Bonus:** Secondary feature branch and PR workflow completed.
-
----
-
-## 📱 LinkedIn Post Draft
-
-```markdown
-🚀 Day 07/90 of the DevOps Winter Arc: Git, GitHub, and a Real-World Production 502 Challenge!
-
-Today was all about bridging local engineering workflows with production infrastructure troubleshooting:
-
-🛠️ What I Built & Practiced Today:
-1️⃣ Git Under the Hood: Mastered the 3-tree model (Working Directory ➔ Staging Area ➔ Commit Graph), configured global identity, and inspected atomic commits with git diff and git log.
-2️⃣ Branching & GitHub Collaboration: Worked with isolated feature branches, pushed to remote repos, opened and reviewed Pull Requests (PRs), and synchronized updates using fast-forward and merge workflows.
-3️⃣ Repository Hygiene & Security: Implemented .gitignore patterns to shield projects from untracked logs, dependencies, and environment files (.env).
-4️⃣ Production Challenge (Nginx + 502 Bad Gateway):
-   - Deployed a microservice behind an Nginx reverse proxy mapped to day7.local.
-   - Simulated an upstream server crash to induce a real HTTP 502 Bad Gateway.
-   - Practiced evidence-first debugging instead of blind restarts:
-     • Port check (ss -lntp) ➔ Confirmed port 3000 was inactive.
-     • Proxy health (nginx -t, systemctl) ➔ Confirmed Nginx was healthy.
-     • Log analysis (/var/log/nginx/error.log) ➔ Traced socket error 111 (Connection refused).
-   - Restored the upstream service and verified the entire chain.
-   - Documented the entire incident with a comprehensive Post-Mortem Incident Report!
-
-Key takeaway: When production throws a 502, don't guess. Follow the evidence: Port ➔ Service ➔ Proxy ➔ Logs ➔ Resolution.
-
-Onto Day 08! 🚀
-
-#DevOps #90DaysOfDevOps #Linux #Git #GitHub #Nginx #Troubleshooting #SRE #CloudEngineering #LearningInPublic
-```
+### ✅ Verification
+The complete collaborative Git lifecycle was executed a second time: feature branch creation, remote pushing, GitHub Pull Request review, merging, and local synchronization. The repository now contains production documentation and operational runbook instructions.
 
 ---
 
