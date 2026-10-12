@@ -1,229 +1,115 @@
-# DevOps Winter Arc — Day 11: Docker Storage & Custom Networking
+# DevOps Winter Arc — Day 11: Docker Volumes & Custom Networking
 
 > **90 Days of DevOps Challenge | Containers Week | Learn • Practice • Build**  
-> **Topic: Data Persistence (Volumes vs Bind Mounts vs tmpfs), User-Defined Bridge Networks, Embedded DNS, Volume Backup/Restore, Port Conflict Troubleshooting**
+> **Topic: Persisting Container Data with Volumes, User-Defined Bridge Networks, Embedded DNS, Backup & Restore, Port Conflict Troubleshooting**
 
 ---
 
-## 🎯 Today's Goal
+## 🎯 Goal for Today
 
-Welcome to **Day 11** of the DevOps Winter Arc!
+Day 11 of my DevOps Winter Arc!
 
-Containers are designed by default to be ephemeral and disposable. In a stateless microservices world, if a container crashes or is deleted, its writable layer vanishes with it. But real-world infrastructure powers stateful workloads: relational databases (PostgreSQL, MySQL), key-value stores (Redis), message queues (RabbitMQ), and persistent storage volumes. 
+By default, Docker containers are disposable. Anything written inside a container lives in a temporary writable layer that gets completely deleted when you run `docker rm`. If you run a database inside a container without a volume, the moment the container dies, all your data is gone with it.
 
-Today's mission is twofold:
-1. **Master Container Storage:** Guarantee that mission-critical application data survives container destruction and recreation using Docker **named volumes**.
-2. **Master Container Networking:** Connect multiple independent containers on a private, isolated **user-defined bridge network** so they can discover and communicate with each other securely by name via Docker's embedded DNS—without exposing internal databases to the public host or internet.
+Today, I'm tackling two core problems:
+1. **Keeping data alive after a container is destroyed** using Docker named volumes.
+2. **Making containers talk to each other by name** using a custom bridge network and Docker's built-in DNS (without exposing database ports to the host or internet).
 
----
-
-### Production Scenario:
-In our company's staging environment, a database container (`db`) was terminated during a rolling update, resulting in the total loss of development database records because the database was writing to the container's ephemeral writable layer. Concurrently, an API microservice failed to connect to the database because it attempted to use `localhost`, unaware that each container has its own network namespace and loopback adapter. Furthermore, a rogue deployment attempted to bind to port `8080` while another process had already claimed it, causing an immediate outage.
-
-As a DevOps Engineer, our job today is to implement production-grade container storage and networking patterns, verify zero data loss across container deletions, validate embedded DNS resolution, perform volume disaster recovery (backup & restore), and troubleshoot host port conflicts.
-
----
-
-### The Plan for Today:
-1. **Deep Dive into Storage Mechanics:** Understand the architectural differences between Named Volumes, Bind Mounts, and `tmpfs`.
-2. **Deep Dive into Docker Networking:** Compare Docker network drivers (`bridge`, `host`, `none`, `overlay`) and discover how Docker's embedded DNS resolver functions on user-defined bridges.
-3. **Task 1: Infrastructure Setup:** Create the isolated custom bridge network (`app-net`) and named storage volume (`pgdata`).
-4. **Task 2: Launch Stateful Service (PostgreSQL):** Run PostgreSQL attached to both the network and volume with secure runtime credentials.
-5. **Task 3: Seed Data & The Destruction Test:** Insert database records into a `shop` database and violently destroy the container with `docker rm -f`.
-6. **Task 4: Zero Data Loss Verification:** Recreate the database container with the original volume and prove the data survived intact.
-7. **Task 5: Multi-Container Networking & DNS Scoping:** Connect a second container (`psql` / Alpine) to `app-net` and query the database using its container name (`db`), then demonstrate why the default bridge fails.
-8. **Task 6: Volume Backup & Disaster Recovery:** Back up `pgdata` into a compressed `.tgz` archive using an ephemeral throw-away container, and restore it into a fresh volume (`pgdata2`).
-9. **Task 7: Port Conflict & Troubleshooting Drill:** Intentionally trigger a host port collision (`0.0.0.0:8080`), diagnose the owning process with `ss -tulpn`, and resolve the bind error.
-10. **Production Troubleshooting Matrix & Interview Readiness:** Document real-world failure patterns and review senior DevOps interview questions.
+### Today's Tasks
+- [x] Persist application data using a named volume (`pgdata`)
+- [x] Connect two containers using a custom network (`app-net`)
+- [x] Prove data survives container deletion (`docker rm -f`)
+- [x] Test container DNS resolution vs default bridge failure
+- [x] Back up and restore a volume using a throwaway container
+- [x] Troubleshoot port conflicts (`port is already allocated`)
 
 ---
 
-## 🗺️ Core Concepts & Architecture Deep Dive
+## 📖 Key Concepts (The Core 30%)
 
-### 1. Containers Are Disposable: Ephemeral vs Persistent Storage
+### 1. Containers Are Disposable
+Every container gets a thin writable layer on top of read-only image layers. When the container is deleted, that writable layer is wiped out. To keep state (like database records, logs, or user uploads), data has to be stored outside the container lifecycle.
 
-When Docker runs a container from an image, it mounts the image's immutable read-only layers and stacks a thin **writable container layer** on top using an overlay filesystem (`overlay2`).
+### 2. Volume vs Bind Mount vs tmpfs
 
-```
-+-------------------------------------------------------+
-| Container Writable Layer (Ephemeral - destroyed on rm) |  <-- All writes go here by default
-+-------------------------------------------------------+
-| Image Layer 3 (Read-Only)                             |
-+-------------------------------------------------------+
-| Image Layer 2 (Read-Only)                             |
-+-------------------------------------------------------+
-| Image Layer 1: Base OS (Read-Only)                    |
-+-------------------------------------------------------+
-```
-
-If a database writes to `/var/lib/postgresql/data` inside this container layer, running `docker rm -f` deletes the container and permanently destroys the database files.
-
----
-
-### 2. Storage Options: Named Volume vs Bind Mount vs tmpfs
-
-Docker provides three mechanisms to mount data into a container:
-
-```
-+-----------------------------------------------------------------------------------------+
-|                                    HOST LINUX SYSTEM                                    |
-|                                                                                         |
-|  +---------------------------+  +----------------------+  +--------------------------+  |
-|  |   /var/lib/docker/volumes |  |   Any Host Path      |  |        Host RAM          |  |
-|  |     (Docker Managed)      |  | (e.g. $(pwd)/code)   |  |     (Kernel Memory)      |  |
-|  +-------------+-------------+  +----------+-----------+  +------------+-------------+  |
-|                |                           |                           |                |
-|         [ Named Volume ]             [ Bind Mount ]                [ tmpfs ]            |
-|                |                           |                           |                |
-|                v                           v                           v                |
-|  +-----------------------------------------------------------------------------------+  |
-|  |                                  CONTAINER                                        |  |
-|  |     /var/lib/postgresql/data            /app/src                      /tmp/cache          |  |
-|  +-----------------------------------------------------------------------------------+  |
-+-----------------------------------------------------------------------------------------+
-```
-
-| Dimension | Named Volume | Bind Mount | tmpfs Mount |
-| :--- | :--- | :--- | :--- |
-| **Storage Location** | `/var/lib/docker/volumes/<name>/_data` | Any path on the host filesystem (e.g., `$(pwd)`) | Host RAM memory only |
-| **Lifecycle & Management** | Managed entirely by Docker CLI & daemon | Managed by host OS user / permissions | Erased when container stops |
-| **Survives `docker rm`?** | **Yes** (independent lifecycle) | **Yes** (it is a standard host directory) | **No** (cleared from RAM) |
-| **Portability** | High (decoupled from host paths) | Low (relies on host directory structure) | High (temporary RAM) |
-| **Performance** | Native Linux I/O speed | Fast on Linux; slower on macOS/Windows VM | Maximum memory speed |
-| **Best Used For** | Production databases, uploads, stateful data | Development live-reloading, mounting config files | Sensitive tokens, scratch buffers, in-memory caches |
-| **Syntax Example** | `-v pgdata:/var/lib/postgresql/data` | `-v $(pwd)/html:/usr/share/nginx/html:ro` | `--tmpfs /tmp` |
-
----
+| Type | Where it lives | Managed by | Survives `docker rm`? | Best for | Example |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Named Volume** | Docker storage area (`/var/lib/docker/volumes`) | Docker | **Yes** | Databases, production data | `-v pgdata:/var/lib/postgresql/data` |
+| **Bind Mount** | Any host path you choose | You / OS | **Yes** (it's your folder) | Development code, live reload, configs | `-v $(pwd):/app` |
+| **tmpfs** | Host RAM only | Linux kernel | **No** (cleared on stop) | Sensitive tokens, scratch data | `--tmpfs /tmp` |
 
 ### 3. Docker Network Drivers
 
-Docker uses Linux network namespaces, virtual ethernet pairs (`veth`), and `iptables` / `nftables` to manage network isolation:
-
-| Driver | Architecture & Mechanics | When to Use in Production |
+| Driver | What it does | When to use |
 | :--- | :--- | :--- |
-| **`bridge` (Default)** | Creates `docker0` virtual bridge. Containers get `172.17.0.x` IPs and reach external networks via NAT (IP masquerade). **No automatic DNS resolution by container name.** | Quick one-off testing; legacy single-container setups. |
-| **`bridge` (User-Defined)** | Dedicated virtual bridge per network. Containers get isolated subnet IPs and **automatic DNS resolution by container name**. | **Production default** for multi-container apps on a single Docker host. |
-| **`host`** | Strips container network namespace isolation; container shares host network stack directly. No port publishing (`-p`) required. | Maximum throughput, low latency (e.g., network analyzers, high-frequency trade systems). Linux only. |
-| **`none`** | Disables all networking. Container receives only a loopback interface (`127.0.0.1`). | Batch jobs, cryptographic signing, security-isolated offline processing. |
-| **`overlay`** | Multi-host network fabric spanning multiple Docker hosts using VXLAN encapsulation. | Docker Swarm clusters (largely superseded by Kubernetes CNI plugins like Calico/Cilium). |
+| **bridge (default)** | Default private network on host. Containers reach outside via NAT, but **no DNS names by default**. | Quick tests only |
+| **bridge (user-defined)** | Same as bridge, but has **automatic DNS by container name** and better isolation. | Almost every multi-container app |
+| **host** | Container shares the host network stack directly. No port mapping needed. | Max network speed, special tools (Linux only) |
+| **none** | No network interface except loopback. | Fully isolated batch jobs |
+| **overlay** | Spans multiple Docker hosts. | Docker Swarm (Kubernetes replaces this) |
 
----
-
-### 4. How Containers Communicate: Architecture & Embedded DNS
-
-On a user-defined bridge network (such as `app-net`), Docker runs an embedded DNS server listening at `127.0.0.11` inside each container's `/etc/resolv.conf`. When container `api` queries `http://db:5432`, Docker DNS automatically resolves hostname `db` to the internal IP address of the `db` container.
+### 4. How Containers Talk
 
 ```
-========================================================================================
-                          CUSTOM BRIDGE NETWORK: app-net (172.20.0.0/16)
-========================================================================================
+                      Custom Network: app-net
+  Browser   +-------------------------------------------+
+    |       |   +----------+   http://db:5432   +------+ |
+    +-8080->|   |   api    | -----------------> |  db  | |
+   (host)   |   | (app)    |   DNS: "db" -> IP  |(pg)  | |
+            |   +----------+                    +---+--+ |
+            +-------------------------------------|-----+
+                                                  |
+                                          Volume: pgdata
 
-  HOST (Browser / Curl)
-        |
-        |  Host Port 8080 (Published: -p 8080:80)
-        v
-  +----------------------------------------------------------------------------------+
-  |  CONTAINER: api (e.g., Python / Node / Client)                                   |
-  |  IP: 172.20.0.3                                                                  |
-  |                                                                                  |
-  |  Resolves "db" -> 172.20.0.2 via 127.0.0.11 (Docker Embedded DNS)                |
-  +----------------------------------------------------------------------------------+
-        |
-        |  Internal Communication: http://db:5432 (Port 5432 NOT published to Host!)
-        v
-  +----------------------------------------------------------------------------------+
-  |  CONTAINER: db (PostgreSQL 16)                                                   |
-  |  IP: 172.20.0.2                                                                  |
-  |  Listening on internal port: 5432                                                |
-  +----------------------------------------------------------------------------------+
-        |
-        |  Mounts persistent storage: /var/lib/postgresql/data
-        v
-  +----------------------------------------------------------------------------------+
-  |  NAMED VOLUME: pgdata (/var/lib/docker/volumes/pgdata/_data)                     |
-  |  Survives container removal (`docker rm -f db`)                                  |
-  +----------------------------------------------------------------------------------+
-========================================================================================
+  Only the API port is published to host (-p 8080:80).
+  The database is accessible ONLY inside app-net.
 ```
 
-> [!IMPORTANT]
-> **Network Security Best Practice:** Never publish internal database ports (`-p 5432:5432`) to the host or internet unless external direct access is strictly required. By keeping the database accessible **only** within `app-net`, the database is completely shielded from external port scans and brute force attacks.
+> **Important Rule:** `localhost` inside a container means the container itself, not my host machine and not another container. To talk to another container, they must be on the same custom network and talk using container names (e.g. `db`). Publishing database ports (`-p 5432:5432`) to the host is a security risk—keep it internal!
 
 ---
 
-### 5. Common DevOps Networking Pitfalls
+## 🛠️ Quick Command Reference
 
-1. **The `localhost` Misconception:** `localhost` inside a container refers to the container's *own* loopback network namespace, NOT the Docker host, and NOT sibling containers. To reach another container, use its container name (DNS).
-2. **Default Bridge DNS Limitation:** Containers connected to the default `bridge` (`docker0`) cannot resolve each other by container name. Only user-defined bridge networks provide automatic DNS.
-3. **Application Listening Address:** An application inside a container must listen on `0.0.0.0` (all interfaces), not `127.0.0.1`. If it listens on `127.0.0.1`, external traffic from the host or bridge network will be rejected.
-4. **Port Binding Collisions:** Two containers cannot publish to the same host port on the same interface (e.g., two containers cannot both bind `-p 8080:80` on `0.0.0.0`).
-
----
-
-## 🛠️ Command Reference Guide
-
-### 💽 Volume Management
-| Command | Purpose | Production Use Case |
+### Volumes
+| Command | What it does | Why I use it |
 | :--- | :--- | :--- |
-| `docker volume create <name>` | Explicitly initializes a named volume | Pre-provision storage before launching database services. |
-| `docker volume ls` | Lists all volumes on the host | Audit disk utilization and identify orphaned storage. |
-| `docker volume inspect <name>` | Displays metadata, driver, and exact host mount point | Locate raw files under `/var/lib/docker/volumes/`. |
-| `docker volume rm <name>` | Permanently deletes a named volume (**irreversible**) | Decommission retired workloads and clean disks. |
-| `docker volume prune` | Deletes all volumes not mounted by any container | Reclaim host disk capacity after maintenance. |
-| `docker run -v <name>:<path> <image>` | Mounts a named volume inside a container | Attach persistent storage to containers. |
-| `docker run -v $(pwd):<path> <image>` | Mounts a host directory (bind mount) | Live application code development. |
-| `docker run -v $(pwd)/conf:<path>:ro <image>` | Mounts host folder read-only (`:ro`) | Enforce immutability on configuration files. |
+| `docker volume create pgdata` | Creates a named volume | Prepare storage before running a database |
+| `docker volume ls` | Lists all volumes | See what storage exists on the host |
+| `docker volume inspect pgdata` | Shows mountpoint and driver | Find where files actually live on disk |
+| `docker volume rm pgdata` | Deletes a volume | Cleanup (permanent data loss!) |
+| `docker run -v pgdata:/var/lib/postgresql/data ...` | Mounts named volume at container path | Run a persistent database |
+| `docker run -v $(pwd):/app ...` | Bind mounts current folder | Code editing with live reload |
 
-### 🌐 Network Management
-| Command | Purpose | Production Use Case |
+### Networks
+| Command | What it does | Why I use it |
 | :--- | :--- | :--- |
-| `docker network ls` | Lists all local and custom networks | Check configured network drivers and scopes. |
-| `docker network create <name>` | Creates an isolated user-defined bridge network | Establish security and DNS boundaries per application. |
-| `docker network inspect <name>` | Shows subnet, gateway, and attached container IPs | Verify container IP allocations and connectivity. |
-| `docker run --network <name> ...` | Spawns a container directly attached to a network | Place services into dedicated microservice tiers. |
-| `docker network connect <net> <c>` | Attaches a running container to another network | Multi-homed containers (e.g., reverse proxy bridging tiers). |
-| `docker network disconnect <net> <c>` | Detaches a container from a network | Isolate a compromised or misbehaving container. |
-| `docker port <container>` | Displays active host-to-container port mappings | Verify published ports and interface bindings. |
-| `docker network rm <name>` | Removes an empty custom network | Clean up temporary staging networks. |
+| `docker network ls` | Lists all networks | See bridge, host, none, and custom networks |
+| `docker network create app-net` | Creates custom bridge network | Isolate services with built-in DNS |
+| `docker network inspect app-net` | Shows subnet & attached containers | Check connected IPs and containers |
+| `docker run --network app-net --name db ...` | Starts container on network | Put app and database together |
+| `docker network connect app-net web` | Connects running container to network | Add container without restarting |
+| `docker port web` | Shows published port mappings | Check which host port maps to container |
 
-### 🔍 Troubleshooting & Connectivity
-| Command | Purpose | Production Use Case |
+### Troubleshooting
+| Command | What it does | Why I use it |
 | :--- | :--- | :--- |
-| `ss -tulpn \| grep <port>` | Identifies host PID and process owning a port | Troubleshoot `port is already allocated` errors. |
-| `docker exec <c> ping -c 2 <target>` | Tests ICMP reachability and DNS resolution | Validate inter-container network paths. |
-| `docker exec <c> nslookup <name>` | Queries embedded DNS (`127.0.0.11`) | Inspect container IP records returned by Docker. |
-| `docker exec <c> curl -I <url>` | Tests HTTP connection and status headers | Verify microservice API reachability. |
-| `docker exec <db> pg_isready -U <user>` | Checks if PostgreSQL is accepting queries | Readiness checks in CI/CD and deployment scripts. |
-| `docker logs <container> --tail 50` | Streams container standard output and error | Diagnose crash loops and connection errors. |
+| `ss -tulpn \| grep 8080` | Finds process listening on port 8080 | Fix "port is already allocated" errors |
+| `docker exec api ping -c 2 db` | Pings container by name | Test if container DNS is resolving |
+| `docker exec db pg_isready -U postgres` | Checks if Postgres is accepting queries | Wait for database readiness |
+| `docker logs db --tail 30` | Shows recent database log lines | Spot startup or authentication errors |
 
 ---
 
-## 🏗️ Hands-On Workspace Setup
+## 🏗️ Hands-On Tasks & Lab Execution
 
-Our dedicated lab workspace for Day 11 is located at:
-```bash
-~/day11-storage-network
-```
-
-```
-day11-storage-network/
-├── README.md               # Hands-on notes and verification logs
-└── pgdata-backup.tgz       # Compressed backup archive of the PostgreSQL volume
-```
+My workspace directory: `~/day11-storage-network`
 
 ---
 
-## 📋 Step-by-Step Task Execution
+### Task 1: Create Custom Network & Named Volume
 
-### Task 1: Create Custom Bridge Network & Named Volume
-
-Before launching containers, we create our isolated virtual network and storage volume.
-
-#### Instructions:
-1. Create the dedicated workspace directory `~/day11-storage-network`.
-2. Create the user-defined bridge network named `app-net`.
-3. Create the named volume named `pgdata`.
-4. Inspect both resources to observe Docker's allocated subnet and host filesystem mount point.
+First step is setting up our isolated network and storage volume before running any containers.
 
 #### Commands:
 ```bash
@@ -231,31 +117,49 @@ mkdir -p ~/day11-storage-network && cd ~/day11-storage-network
 docker network create app-net
 docker volume create pgdata
 docker network ls
-docker volume ls
 docker volume inspect pgdata
 ```
 
 #### Terminal Output:
 ```bash
-# Paste your terminal output here
+hrishav@hrishav-LOQ-15IAX9:~$ mkdir -p ~/day11-storage-network && cd ~/day11-storage-network
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker network create app-net
+a5e8ab025bf3db948330964239d0d7393f009a5bdaa085dacb123713129ab41b
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker volume create pgdata
+pgdata
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker network ls
+NETWORK ID     NAME                   DRIVER    SCOPE
+cb737e212955   3_tier_app_mynet       bridge    local
+a5e8ab025bf3   app-net                bridge    local
+d09fa4ed7c97   bridge                 bridge    local
+5945cfd82ba5   finlyt_bankapp-net     bridge    local
+adf369198225   host                   host      local
+a1aee713e03d   kind                   bridge    local
+2ac230e00bcc   none                   null      local
+0265aee3ab4f   task-tracker_default   bridge    local
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker volume inspect pgdata
+[
+    {
+        "CreatedAt": "2026-10-12T19:09:10+05:30",
+        "Driver": "local",
+        "Labels": null,
+        "Mountpoint": "/var/lib/docker/volumes/pgdata/_data",
+        "Name": "pgdata",
+        "Options": null,
+        "Scope": "local"
+    }
+]
 ```
 
-#### Student Observations:
-- What driver is used by `app-net`?
-- What is the host mount point path returned by `docker volume inspect pgdata`?
+#### My Observations:
+- `docker network create app-net` created a bridge network with scope `local`. Unlike the default `bridge`, this user-defined network enables Docker's embedded DNS server (`127.0.0.11`).
+- `docker volume inspect pgdata` shows that Docker manages the storage under `/var/lib/docker/volumes/pgdata/_data` on the host. This lives independently of any container lifecycle. 
 
 ---
 
-### Task 2: Launch Stateful Service (PostgreSQL 16) with Volume & Network
+### Task 2: Launch PostgreSQL with Persistent Storage
 
-Launch a PostgreSQL container connected to `app-net` with `pgdata` mounted to `/var/lib/postgresql/data`.
-
-#### Instructions:
-1. Run `postgres:16-alpine` in detached mode named `db`.
-2. Connect it to `app-net`.
-3. Pass environment variables `POSTGRES_PASSWORD=changeme` and `POSTGRES_DB=shop`.
-4. Mount volume `pgdata` at `/var/lib/postgresql/data`.
-5. Check logs to confirm PostgreSQL initialized database cluster and is accepting connections.
+Now run PostgreSQL 16 on `app-net` with `pgdata` mounted to `/var/lib/postgresql/data`. Notice I am not publishing port 5432 to the host—it only lives on `app-net`.
 
 #### Commands:
 ```bash
@@ -263,66 +167,91 @@ docker run -d --name db --network app-net \
   -e POSTGRES_PASSWORD=changeme -e POSTGRES_DB=shop \
   -v pgdata:/var/lib/postgresql/data postgres:16-alpine
 
-# Verify container is running and healthy
-docker ps --filter "name=db"
-docker logs db --tail 20
+# Wait a second and verify it's ready
 docker exec db pg_isready -U postgres
 ```
 
 #### Terminal Output:
 ```bash
-# Paste your terminal output here
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker run -d --name db --network app-net \
+  -e POSTGRES_PASSWORD=changeme -e POSTGRES_DB=shop \
+  -v pgdata:/var/lib/postgresql/data postgres:16-alpine
+Unable to find image 'postgres:16-alpine' locally
+16-alpine: Pulling from library/postgres
+509688edf37b: Pull complete 
+a88782f92806: Pull complete 
+81717818649a: Pull complete 
+25b77f59fd95: Pull complete 
+1b7f9cd581ee: Pull complete 
+6117bd39f23f: Pull complete 
+210b280f9556: Pull complete 
+3ae6141cfd99: Pull complete 
+d8d21be4bf02: Pull complete 
+6c25da34e03f: Pull complete 
+e6b147246a89: Download complete 
+021b01ea4cc2: Download complete 
+Digest: sha256:721873c34ceb9f8d8fc265984940dc982404c105f19ad51be9fdc5970a6080ea
+Status: Downloaded newer image for postgres:16-alpine
+bddef2b4ae476ea25562f80861bac06cf7e96cc1985dbd520baaabe33f6d91ab
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ sleep 3
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker exec db pg_isready -U postgres
+/var/run/postgresql:5432 - accepting connections
 ```
 
-#### Student Observations:
-- Did PostgreSQL report "database system is ready to accept connections"?
-- Notice we did NOT use `-p 5432:5432`. Can processes on the host access port 5432 directly?
+#### My Observations:
+- Docker pulled `postgres:16-alpine`, which is ultra-lightweight compared to the standard Debian-based Postgres image.
+- `pg_isready -U postgres` returned `/var/run/postgresql:5432 - accepting connections`, confirming the database cluster initialized properly in our `pgdata` volume and is listening for queries.
+- Port 5432 is not exposed on the host, meaning it is strictly reachable only by containers connected to `app-net`. 
 
 ---
 
-### Task 3: Insert Seed Data & Execute Container Annihilation Test
+### Task 3: Insert Data and Destroy the Container
 
-Simulate a production application inserting persistent records, then forcefully destroy the container.
-
-#### Instructions:
-1. Execute `psql` inside `db` to create a table `notes` in database `shop`.
-2. Insert a record: `'I survive!'`.
-3. Query the table to verify row insertion.
-4. Execute `docker rm -f db` to violently kill and remove the running container.
+Insert test records into database `shop`, verify they exist, and then violently delete the container using `docker rm -f`.
 
 #### Commands:
 ```bash
-# Create table and insert record
+# Create table and insert row
 docker exec -it db psql -U postgres -d shop -c \
-  "CREATE TABLE notes(id serial, msg text); INSERT INTO notes(msg) VALUES ('I survive!');"
+  "CREATE TABLE notes(id serial, msg text); INSERT INTO notes(msg) VALUES ('I survive');"
 
-# Query record
+# Check row
 docker exec db psql -U postgres -d shop -c "SELECT * FROM notes;"
 
-# Destroy the container
+# Delete the container
 docker rm -f db
 docker ps -a --filter "name=db"
 ```
 
 #### Terminal Output:
 ```bash
-# Paste your terminal output here
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker exec -it db psql -U postgres -d shop -c \
+  "CREATE TABLE notes(id serial, msg text); INSERT INTO notes(msg) VALUES ('I survive');"
+CREATE TABLE
+INSERT 0 1
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker exec db psql -U postgres -d shop -c "SELECT * FROM notes;"
+ id |    msg    
+----+-----------
+  1 | I survive
+(1 row)
+
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker rm -f db
+db
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker ps -a --filter "name=db"
+CONTAINER ID   IMAGE     COMMAND   CREATED   STATUS    PORTS     NAMES
 ```
 
-#### Student Observations:
-- Is container `db` present in `docker ps -a`?
-- Did the named volume `pgdata` get deleted when the container was removed? Verify with `docker volume ls`.
+#### My Observations:
+- In Bash, single quotes `'I survive'` were needed because an unescaped exclamation mark inside double quotes triggers Bash history expansion (`event not found`).
+- The `notes` table was created and the row `1 | I survive` was successfully committed to the database.
+- Running `docker rm -f db` completely destroyed the container, PID namespaces, and its writable layer.
+- `docker ps -a` confirms that the container is 100% gone, but the named volume `pgdata` remains intact on the host disk. 
 
 ---
 
-### Task 4: Re-create Container with Volume & Verify Zero Data Loss
+### Task 4: Re-create Container and Verify Zero Data Loss
 
-Re-create the PostgreSQL container attaching the same `pgdata` volume to prove data persistence.
-
-#### Instructions:
-1. Launch a brand-new container named `db` attaching to `app-net` and mounting `pgdata`.
-2. Wait a few seconds for PostgreSQL to start.
-3. Query the `notes` table in database `shop`—the row must still be present!
+Re-create the `db` container with the same named volume `pgdata`. Query the table—the row must still be there.
 
 #### Commands:
 ```bash
@@ -330,218 +259,259 @@ docker run -d --name db --network app-net \
   -e POSTGRES_PASSWORD=changeme \
   -v pgdata:/var/lib/postgresql/data postgres:16-alpine
 
-# Give Postgres 2-3 seconds to start, then verify readiness
-sleep 3
+# Give it 2 seconds to initialize
+sleep 2
 docker exec db pg_isready -U postgres
 
-# Query table to verify data survived
+# Check if data survived
 docker exec db psql -U postgres -d shop -c "SELECT * FROM notes;"
 ```
 
 #### Terminal Output:
 ```bash
-# Paste your terminal output here
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker run -d --name db --network app-net \
+  -e POSTGRES_PASSWORD=changeme \
+  -v pgdata:/var/lib/postgresql/data postgres:16-alpine
+a1764e1c795cfc51b289d218b4b99e73960ea5b3fbfc1691c68da65cb3ce1e55
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ sleep 2
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker exec db pg_isready -U postgres
+/var/run/postgresql:5432 - accepting connections
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker exec db psql -U postgres -d shop -c "SELECT * FROM notes;"
+ id |    msg    
+----+-----------
+  1 | I survive
+(1 row)
 ```
 
-#### Student Observations:
-- Why did we not need to specify `-e POSTGRES_DB=shop` when re-creating the container? (Hint: See how Postgres initialization works with existing volumes).
-- Did the row `'I survive!'` return intact?
+#### My Observations:
+- Re-running a container with `-v pgdata:/var/lib/postgresql/data` reattached the existing storage volume seamlessly.
+- I didn't need to specify `-e POSTGRES_DB=shop` because PostgreSQL automatically detects existing catalog files in the volume and mounts the existing `shop` database.
+- The SQL query returned `1 | I survive`, proving zero data loss despite the previous container being forcefully deleted. Volume persistence works as intended! 
 
 ---
 
-### Task 5: Multi-Container Networking & DNS Scoping Drill
+### Task 5: Connect Second Container & Test DNS Resolution
 
-Prove that containers on the same user-defined network resolve each other by container name, while containers on other networks fail.
-
-#### Instructions:
-1. Run an ephemeral client container on `app-net` using `postgres:16-alpine` and connect to hostname `db` via `psql`.
-2. Run a container on the default bridge network attempting to ping `db` (expected: DNS resolution failure).
-3. Run a container on `app-net` pinging `db` (expected: success).
+Prove that a second container on `app-net` can query the database by the hostname `db`, and prove that a container on the default bridge fails.
 
 #### Commands:
 ```bash
-# 1. Connect from client container on app-net using hostname 'db'
+# 1. Connect client on app-net by name 'db'
 docker run --rm -it --network app-net -e PGPASSWORD=changeme postgres:16-alpine \
   psql -h db -U postgres -d shop -c "SELECT count(*) FROM notes;"
 
-# 2. Test DNS resolution on default bridge (fails)
+# 2. Try pinging 'db' from default bridge (should fail)
 docker run --rm alpine ping -c 1 db
 
-# 3. Test DNS resolution on user-defined bridge (succeeds)
+# 3. Try pinging 'db' from app-net (should succeed)
 docker run --rm --network app-net alpine ping -c 1 db
 ```
 
 #### Terminal Output:
 ```bash
-# Paste your terminal output here
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker run --rm -it --network app-net -e PGPASSWORD=changeme postgres:16-alpine \
+  psql -h db -U postgres -d shop -c "SELECT count(*) FROM notes;"
+ count 
+-------
+     1
+(1 row)
+
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker run --rm alpine ping -c 1 db
+Unable to find image 'alpine:latest' locally
+latest: Pulling from library/alpine
+797dd00a0fc7: Download complete 
+6d0606d1815c: Download complete 
+Digest: sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6
+Status: Downloaded newer image for alpine:latest
+ping: bad address 'db'
+
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker run --rm --network app-net alpine ping -c 1 db
+PING db (172.22.0.2): 56 data bytes
+64 bytes from 172.22.0.2: seq=0 ttl=64 time=0.157 ms
+
+--- db ping statistics ---
+1 packets transmitted, 1 packets received, 0% packet loss
+round-trip min/avg/max = 0.157/0.157/0.157 ms
 ```
 
-#### Student Observations:
-- What exact error does `docker run --rm alpine ping -c 1 db` return?
-- Why does the second ping resolve instantly to the internal IP of container `db`?
+#### My Observations:
+- A client container connected to `app-net` easily queried the database using hostname `db` (`-h db`), receiving `count: 1`.
+- When running `alpine ping -c 1 db` without specifying a network, the container defaulted to the standard `bridge` network (`docker0`) and failed with `ping: bad address 'db'`. This confirms that the default bridge network does NOT support automatic DNS name resolution.
+- Running the exact same ping command with `--network app-net` resolved `db` to `172.22.0.2` in `0.157 ms`. This proves that user-defined bridge networks provide automatic service discovery via Docker's embedded DNS server (`127.0.0.11`). 
 
 ---
 
-### Task 6: Volume Backup & Disaster Recovery via Throwaway Container
+### Task 6: Backup & Restore Volume Using a Throwaway Container
 
-In DevOps, named volumes live inside `/var/lib/docker/volumes`, which typically requires root privileges to browse. Learn the industry-standard pattern: attach an ephemeral container that mounts both the volume and the host current directory to create a tar archive.
-
-#### Instructions:
-1. Run an ephemeral Alpine container that mounts `pgdata` at `/data` and current host folder `$(pwd)` at `/backup`.
-2. Tar and gzip `/data` into `/backup/pgdata-backup.tgz`.
-3. Create a fresh volume `pgdata2`.
-4. Restore the backup archive into `pgdata2`.
-5. Launch a test database container using `pgdata2` to verify data recovery.
+To back up Docker volumes without needing root access to `/var/lib/docker/volumes`, I can run a temporary Alpine container that mounts both the volume and my current folder, creating a `.tgz` archive.
 
 #### Commands:
 ```bash
-# 1. Backup volume to compressed tar archive
+# 1. Backup pgdata to tar archive
 docker run --rm -v pgdata:/data -v $(pwd):/backup alpine \
   tar czf /backup/pgdata-backup.tgz -C /data .
 
-# 2. Inspect generated backup file
 ls -lh pgdata-backup.tgz
 
-# 3. Create fresh target volume
+# 2. Restore into a new volume pgdata2
 docker volume create pgdata2
-
-# 4. Restore archive into new volume
 docker run --rm -v pgdata2:/data -v $(pwd):/backup alpine \
   tar xzf /backup/pgdata-backup.tgz -C /data
 
-# 5. Launch test container with restored volume to confirm integrity
-docker run --rm -d --name db-restore --network app-net \
+# 3. Test restored volume
+docker run --rm -d --name db2 --network app-net \
   -e POSTGRES_PASSWORD=changeme -v pgdata2:/var/lib/postgresql/data postgres:16-alpine
-sleep 3
-docker exec db-restore psql -U postgres -d shop -c "SELECT * FROM notes;"
-docker rm -f db-restore
+
+sleep 2
+docker exec db2 psql -U postgres -d shop -c "SELECT * FROM notes;"
+docker rm -f db2
 ```
 
 #### Terminal Output:
 ```bash
-# Paste your terminal output here
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker run --rm -v pgdata:/data -v $(pwd):/backup alpine \
+  tar czf /backup/pgdata-backup.tgz -C /data .
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ ls -lh pgdata-backup.tgz
+-rw-r--r-- 1 root root 6.5M Oct 12 19:29 pgdata-backup.tgz
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker volume create pgdata2
+pgdata2
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker run --rm -v pgdata2:/data -v $(pwd):/backup alpine \
+  tar xzf /backup/pgdata-backup.tgz -C /data
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker run --rm -d --name db2 --network app-net \
+  -e POSTGRES_PASSWORD=changeme -v pgdata2:/var/lib/postgresql/data postgres:16-alpine
+7de65fd63f7b83059a9f47dcd65feb40855ebf29229a750f8b9e28d86fe63a41
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ sleep 3
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker exec db2 psql -U postgres -d shop -c "SELECT * FROM notes;"
+ id |    msg    
+----+-----------
+  1 | I survive
+(1 row)
+
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker rm -f db2
+db2
 ```
 
-#### Student Observations:
-- What is the size of `pgdata-backup.tgz`?
-- Did the restored volume `pgdata2` successfully serve the `notes` table?
+#### My Observations:
+- Using a throwaway Alpine container allowed me to bypass host permission limits on `/var/lib/docker/volumes` and generate a `6.5 MB` compressed `.tgz` backup archive directly into my current directory.
+- Restoring into a fresh named volume `pgdata2` via `tar xzf` and running test container `db2` proved 100% data fidelity (`1 | I survive`).
+- This pattern provides a clean, portable backup/restore workflow for Docker volumes without needing direct root access to the host daemon storage directory. 
 
 ---
 
-### Task 7: Host Port Conflict & Connectivity Troubleshooting Drill
+### Task 7: Port Conflict Drill
 
-Simulate one of the most common production issues: attempting to bind to an already allocated host port.
-
-#### Instructions:
-1. Run container `w1` mapping host port `8080` to container port `80`.
-2. Run container `w2` attempting to bind to the same host port `8080` (observe the bind error).
-3. Identify the process/container holding port `8080` using `ss -tulpn` and `docker ps`.
-4. Fix the collision by mapping `w2` to port `8081`.
-5. Clean up the web containers.
+Simulate what happens when two containers try to bind to the same host port (`8080:80`), troubleshoot the error, and fix it.
 
 #### Commands:
 ```bash
-# 1. Run first web server on port 8080
+# Start first container on 8080
 docker run -d --name w1 -p 8080:80 nginx:1.27-alpine
 
-# 2. Attempt to run second web server on same host port 8080 (fails)
+# Try to start second container on 8080 (fails)
 docker run -d --name w2 -p 8080:80 nginx:1.27-alpine
 
-# 3. Diagnose the conflict on the host
+# Check what owns port 8080
 ss -tulpn | grep 8080
-docker ps --filter "publish=8080"
 
-# 4. Fix by choosing alternative available host port (8081)
+# Fix by remapping to port 8081
 docker rm -f w2 2>/dev/null || true
 docker run -d --name w2 -p 8081:80 nginx:1.27-alpine
 
-# 5. Verify both servers are reachable on the host
-curl -s -I http://localhost:8080 | head -n 1
-curl -s -I http://localhost:8081 | head -n 1
+# Verify both respond
+curl -I http://localhost:8080 | head -n 1
+curl -I http://localhost:8081 | head -n 1
 
-# Clean up web test containers
+# Cleanup web containers
 docker rm -f w1 w2
 ```
 
 #### Terminal Output:
 ```bash
-# Paste your terminal output here
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker run -d --name w1 -p 8080:80 nginx:1.27-alpine
+Unable to find image 'nginx:1.27-alpine' locally
+1.27-alpine: Pulling from library/nginx
+34a64644b756: Pull complete 
+39c2ddfd6010: Pull complete 
+f18232174bc9: Pull complete 
+197eb75867ef: Pull complete 
+b464cfdf2a63: Pull complete 
+81bd8ed7ec67: Pull complete 
+61ca4f733c80: Pull complete 
+d7e507024086: Pull complete 
+2a84448aca9c: Download complete 
+9261b9aff737: Download complete 
+Digest: sha256:65645c7bb6a0661892a8b03b89d0743208a18dd2f3f17a54ef4b76fb8e2f2a10
+Status: Downloaded newer image for nginx:1.27-alpine
+610c4385fb283d0092ec3a80f63048db42984a011e05169f27a214a8c99cb158
+
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker run -d --name w2 -p 8080:80 nginx:1.27-alpine
+5df75cd3ca91b56823c18b8be943bd62e67297d40502d1eb7775771d473b9a41
+docker: Error response from daemon: failed to set up container networking: driver failed programming external connectivity on endpoint w2 (27bd9c3100d8760cf7c19d3eb368f75c41b168c265af00b8787ddb31d3b5080c): Bind for 0.0.0.0:8080 failed: port is already allocated
+
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ ss -tulpn | grep 8080
+tcp   LISTEN 0      4096                                       0.0.0.0:8080       0.0.0.0:*                                               
+tcp   LISTEN 0      4096                                          [::]:8080          [::]:*                                               
+
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker rm -f w2 2>/dev/null || true
+docker run -d --name w2 -p 8081:80 nginx:1.27-alpine
+w2
+bc3a594f5fc0ce639dd77ae53d5ae3127fef6f71cb98533b5d40b2a2164eb179
+
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ curl -I http://localhost:8080 | head -n 1
+HTTP/1.1 200 OK
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ curl -I http://localhost:8081 | head -n 1
+HTTP/1.1 200 OK
+
+hrishav@hrishav-LOQ-15IAX9:~/day11-storage-network$ docker rm -f w1 w2
+w1
+w2
 ```
 
-#### Student Observations:
-- What was the exact Docker error message when running `w2` on port `8080`?
-- What process name appeared in `ss -tulpn`? (Hint: `docker-proxy`).
+#### My Observations:
+- Attempting to run `w2` on port `8080` triggered an immediate error: `driver failed programming external connectivity ... Bind for 0.0.0.0:8080 failed: port is already allocated`.
+- Running `ss -tulpn | grep 8080` showed the host sockets in `LISTEN` state on IPv4 (`0.0.0.0:8080`) and IPv6 (`[::]:8080`).
+- To fix the port collision, I removed the dead `w2` container and remapped it to host port `8081:80`.
+- Both `curl -I http://localhost:8080` and `curl -I http://localhost:8081` returned `HTTP/1.1 200 OK`, proving two independent containers running the same service can coexist seamlessly by publishing to distinct host ports. 
 
 ---
 
-## 📋 Production Troubleshooting Matrix
+## 🚨 Troubleshooting Notes
 
-| Issue / Error | Symptoms & Evidence | Root Cause | Fix / Solution | Verification |
-| :--- | :--- | :--- | :--- | :--- |
-| **Data vanished after `docker rm`** | Database empty after re-running container. | Postgres data was written to container writable layer because `-v pgdata:...` was missing or path was misspelled. | Mount named volume to exact path `/var/lib/postgresql/data`. | Check `docker volume inspect pgdata` and query rows after container deletion. |
-| **`could not translate host name "db"`** | Client fails with DNS resolution error. | Containers are on different networks or on the default bridge (`docker0`), which lacks embedded DNS. | Connect both containers to the same user-defined bridge (`--network app-net`). | Run `docker exec <client> nslookup db` or ping. |
-| **`Bind for 0.0.0.0:8080 failed: port is already allocated`** | Container fails to start with bind error. | Another container or host process (Apache, Nginx, another app) is already listening on host port 8080. | Find owner with `ss -tulpn \| grep 8080` and `docker ps`. Remap to another port (e.g., `-p 8081:80`) or stop conflicting process. | Check `docker ps` and test with `curl http://localhost:8081`. |
-| **Connection refused immediately after container start** | Client reports `Connection to db:5432 failed: Connection refused`. | Database process takes 2–5 seconds to perform internal initialization and start socket listener. | Add readiness loop using `pg_isready -U postgres` before executing application queries. | Run `docker exec db pg_isready -U postgres`. |
-| **Environment variables ignored on existing volume** | Changing `POSTGRES_PASSWORD` or `POSTGRES_DB` does not affect database. | PostgreSQL initialization scripts in `/docker-entrypoint-initdb.d/` only execute once when the data directory is completely empty. | If schema/credential changes are needed, run SQL migration scripts via `psql` or wipe volume if in development. | Connect via `psql` and verify user/password. |
+### 1. "could not translate host name 'db'"
+- **Cause:** The client container is on the default bridge or a different network.
+- **Fix:** Both containers must be on the same user-defined network (`--network app-net`).
 
----
+### 2. "Bind for 0.0.0.0:8080 failed: port is already allocated"
+- **Cause:** Another container or host process is already listening on port 8080.
+- **Fix:** Run `ss -tulpn | grep 8080` or `docker ps` to find what owns it. Map to an unused port like `8081`.
 
-## 🧠 Senior DevOps Interview Questions & Architecture Answers
+### 3. Connection refused right after starting Postgres
+- **Cause:** PostgreSQL takes 2-4 seconds to spin up and create its listening socket.
+- **Fix:** Use `docker exec db pg_isready -U postgres` to verify readiness before running queries.
 
-### 1. What is the fundamental difference between a Docker Volume and a Bind Mount?
-- **Answer:** A **named volume** is created, managed, and isolated entirely within Docker's managed storage area (`/var/lib/docker/volumes/` on Linux). It has a lifecycle completely decoupled from any single container, works consistently across different host OS environments, and is the production standard for databases and persistent application state. A **bind mount** maps an arbitrary file or folder from the host filesystem directly into the container. It depends strictly on host paths and permissions, making it ideal for local development environments (live-reloading code) and mounting host configuration files (like `/etc/nginx/nginx.conf`).
-
-### 2. Why can containers resolve each other by name on a custom bridge network, but fail on the default bridge?
-- **Answer:** User-defined bridge networks instantiate Docker's built-in **embedded DNS server** (listening at IP `127.0.0.11` inside container namespaces). This DNS server dynamically maps container names and aliases to their assigned container IP addresses on that specific network. The legacy default `bridge` (`docker0`) was designed before embedded DNS was introduced; it relies only on static `/etc/hosts` entries linked via deprecated `--link` flags, and does not provide automatic dynamic name resolution.
-
-### 3. What does `-p 8080:80` actually do under the hood in Linux?
-- **Answer:** Under the hood, Docker performs two operations:
-  1. It configures Linux **iptables / nftables** NAT rules in the `PREROUTING` and `DOCKER` chains to perform Destination NAT (DNAT), translating incoming packets on host port `8080` to the container's private IP on port `80`.
-  2. It spawns a user-space daemon called `docker-proxy` bound to host port `8080` as a fallback mechanism to route traffic between host loopback and container namespaces.
-
-### 4. Why is publishing an internal database port (`-p 5432:5432`) considered a serious security risk in production?
-- **Answer:** Publishing port `5432` binds the database socket to all network interfaces (`0.0.0.0`), exposing it directly to the host's public IP address, VPC, and potentially the internet. This exposes the database to automated port scanning, brute-force attacks, and network-level denial of service. The secure production pattern is to attach the database exclusively to an internal custom network (`app-net`) without publishing ports (`-p`). Only trusted application services residing on the same network can reach the database port via internal DNS.
-
-### 5. How do you back up and restore data stored in a Docker named volume without root access to `/var/lib/docker/volumes`?
-- **Answer:** By launching an ephemeral throwaway container (e.g. `alpine`) that mounts both the source volume and a host directory, executes a tar backup, and exits:
-  ```bash
-  docker run --rm -v pgdata:/data -v $(pwd):/backup alpine tar czf /backup/pgdata.tgz -C /data .
-  ```
-  To restore, create a target volume and reverse the process using `tar xzf`:
-  ```bash
-  docker run --rm -v pgdata_new:/data -v $(pwd):/backup alpine tar xzf /backup/pgdata.tgz -C /data
-  ```
+### 4. Changing `POSTGRES_PASSWORD` or `POSTGRES_DB` had no effect
+- **Cause:** Postgres initialization scripts only run the first time a volume is empty. If data already exists, env vars are ignored.
+- **Fix:** Run SQL queries directly with `psql` to alter passwords or databases on existing volumes.
 
 ---
 
-## 💭 Reflection Questions (DevOps Engineer Perspective)
+## 🎤 Interview Questions & Key Takeaways
 
-### 1. What proved that the PostgreSQL data survived container deletion?
-- **Answer:** Running `docker rm -f db` completely destroyed the container, verified by `docker ps -a`. When a new container was created mounting the same `pgdata` volume, querying `SELECT * FROM notes;` immediately returned the row `'I survive!'`, proving the state was safely stored on the host's volume filesystem rather than the ephemeral container layer.
+### Q1: What is the difference between a Volume and a Bind Mount?
+- **Answer:** A named volume is completely managed by Docker inside `/var/lib/docker/volumes` and is best for databases and persistent production data. A bind mount maps an exact host folder into the container, which is best for local code development and mounting config files.
 
-### 2. What happened when we tried to reach `db` from a container on the default bridge?
-- **Answer:** `ping -c 1 db` failed with `ping: bad address 'db'`. Because the default bridge has no embedded DNS service, the container could not resolve the name `db` to an IP address.
+### Q2: Why can containers reach each other by name on a custom bridge, but not on the default bridge?
+- **Answer:** User-defined bridge networks have Docker's built-in embedded DNS server enabled (listening on `127.0.0.11`), which automatically resolves container names to IP addresses. The default bridge (`docker0`) is legacy and does not provide automatic DNS resolution.
 
-### 3. How did we diagnose and resolve the host port conflict?
-- **Answer:** Running `w2` on port `8080` failed with `Bind for 0.0.0.0:8080 failed: port is already allocated`. Running `ss -tulpn | grep 8080` revealed that `docker-proxy` owned port 8080 on behalf of container `w1`. We resolved the conflict by deleting the failed container and mapping `w2` to an unallocated host port (`-p 8081:80`).
+### Q3: What does `-p 8080:80` do under the hood?
+- **Answer:** Docker configures Linux `iptables` NAT rules to forward incoming traffic from host port 8080 to the container IP on port 80, and runs `docker-proxy` on the host to route loopback traffic.
 
----
+### Q4: What happens to data when you delete a container that used a named volume?
+- **Answer:** The container and its writable layer are deleted, but the volume and all its stored data remain on the host until explicitly removed using `docker volume rm`.
 
-## 📦 Required Deliverables & Verification Checklist
-
-- [ ] Isolated user-defined bridge network `app-net` created.
-- [ ] Persistent named volume `pgdata` created.
-- [ ] PostgreSQL container `db` launched with volume and network.
-- [ ] Table `notes` created and seeded with test record `'I survive!'`.
-- [ ] Container `db` forcefully destroyed (`docker rm -f db`).
-- [ ] Container re-created with volume and data persistence verified via SQL query.
-- [ ] Inter-container DNS resolution verified using `psql` client container on `app-net`.
-- [ ] DNS resolution failure verified on default bridge network.
-- [ ] Volume backup archive `pgdata-backup.tgz` created via throwaway Alpine container.
-- [ ] Backup restored into new volume `pgdata2` and verified.
-- [ ] Host port conflict drill executed, diagnosed via `ss -tulpn`, and resolved with port `8081`.
-- [ ] Final environment cleaned up.
+### Q5: How do you troubleshoot "port is already allocated"?
+- **Answer:** Run `ss -tulpn | grep <port>` or `docker ps` to find the process or container holding the port. Either stop the conflicting process or map your container to a free host port.
 
 ---
 
-[← Day 10](Day10.md) | [Home](README.md) | [Day 12 →](Day12.md)
+[← Day 10](Day10.md) | [Home](README.md)
