@@ -15,13 +15,14 @@ Today, I'm tackling two core problems:
 1. **Keeping data alive after a container is destroyed** using Docker named volumes.
 2. **Making containers talk to each other by name** using a custom bridge network and Docker's built-in DNS (without exposing database ports to the host or internet).
 
-### Today's Tasks
-- [x] Persist application data using a named volume (`pgdata`)
-- [x] Connect two containers using a custom network (`app-net`)
-- [x] Prove data survives container deletion (`docker rm -f`)
-- [x] Test container DNS resolution vs default bridge failure
-- [x] Back up and restore a volume using a throwaway container
-- [x] Troubleshoot port conflicts (`port is already allocated`)
+### 🗺️ Today's Mission Blueprint
+
+Instead of just running commands, today's work was designed as an end-to-end resilience and networking drill:
+
+1. 🛡️ **The Annihilation Drill (Volume Persistence):** Spin up PostgreSQL with a dedicated named volume, commit real records, forcefully delete the container with `docker rm -f`, and verify zero data loss upon recreating it.
+2. 🌐 **Zero-IP Service Discovery (DNS Resolution):** Plumb a custom bridge network (`app-net`), query the database strictly by container name (`db`), and demonstrate why the legacy default bridge fails.
+3. 📦 **Disaster Recovery in a Sandbox (Backup & Restore):** Tar and gzip raw volume data into a compressed archive using an ephemeral Alpine throwaway container, then restore it into a fresh volume.
+4. 🔌 **Port Collision Triage (Linux Networking):** Intentionally cause a `port is already allocated` host collision, track down the owning socket with `ss -tulpn`, and remap the container to a clean port.
 
 ---
 
@@ -48,24 +49,16 @@ Every container gets a thin writable layer on top of read-only image layers. Whe
 | **none** | No network interface except loopback. | Fully isolated batch jobs |
 | **overlay** | Spans multiple Docker hosts. | Docker Swarm (Kubernetes replaces this) |
 
-### 4. How Containers Talk
+### 4. How Containers Talk (Networking + Storage Architecture)
 
-```
-                      Custom Network: app-net
-  Browser   +-------------------------------------------+
-    |       |   +----------+   http://db:5432   +------+ |
-    +-8080->|   |   api    | -----------------> |  db  | |
-   (host)   |   | (app)    |   DNS: "db" -> IP  |(pg)  | |
-            |   +----------+                    +---+--+ |
-            +-------------------------------------|-----+
-                                                  |
-                                          Volume: pgdata
+![How Containers Talk](assets/how-containers-talk.jpeg)
 
-  Only the API port is published to host (-p 8080:80).
-  The database is accessible ONLY inside app-net.
-```
-
-> **Important Rule:** `localhost` inside a container means the container itself, not my host machine and not another container. To talk to another container, they must be on the same custom network and talk using container names (e.g. `db`). Publishing database ports (`-p 5432:5432`) to the host is a security risk—keep it internal!
+#### 🔍 Breaking Down the Architecture:
+- **Host Ingress:** The browser connects to `http://localhost:8080`. Docker forwards this host traffic to the `api` container port `8080` via port mapping (`-p 8080:8080`).
+- **Private Custom Network (`app-net`):** Both `api` and `db` are plugged into `app-net`, giving them an isolated communication channel.
+- **Embedded DNS Resolution:** The API talks to `http://db:5432`. Docker's embedded DNS server (`127.0.0.11`) automatically resolves `"db"` to the container's internal IP.
+- **Internal Security:** Notice port `5432` is **not published** to the host. It is reachable strictly within `app-net`, shielding the database from the outside world.
+- **Persistent State:** The `db` container mounts named volume `pgdata`. All data is stored safely on host disk, surviving container deletion.
 
 ---
 
