@@ -507,4 +507,4 @@ w2
 
 ---
 
-[← Day 10](Day10.md) | [Home](README.md)
+[← Day 10](Day10.md) | [Home](README.md) | [Day 12 →](Day12.md)
