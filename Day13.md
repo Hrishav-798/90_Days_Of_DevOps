@@ -279,3 +279,4 @@ A slim image contains fewer packages, which reduces image size, pull time, attac
 ---
 
 [← Day 12](Day12.md) | [Home](README.md)
+
