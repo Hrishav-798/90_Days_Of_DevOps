@@ -278,5 +278,5 @@ A slim image contains fewer packages, which reduces image size, pull time, attac
 
 ---
 
-[← Day 12](Day12.md) | [Home](README.md)
+[← Day 12](Day12.md) | [Home](README.md) | [Day 14 →](Day14.md)
 
