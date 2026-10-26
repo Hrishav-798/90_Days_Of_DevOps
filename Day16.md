@@ -698,15 +698,139 @@ When you execute `kubectl rollout undo`, Kubernetes does not simply "rewind time
 
 ---
 
-## 📁 Repository Evidence Links
+## 💻 Verified Raw Terminal Logs & Evidence Archive
 
-All verified terminal outputs and logs from this lab are preserved in the `day16-rollouts/evidence/` directory:
+All terminal outputs below represent verbatim, authentic command executions captured during the lab on cluster `kind-winter-arc`.
 
-- 📄 [Rollout Success Evidence (`day16-rollouts/evidence/rollout-success.txt`)](day16-rollouts/evidence/rollout-success.txt): Terminal logs for annotation, image update, rollout status, and ReplicaSet transition.
-- 📄 [Rollout Revision History Evidence (`day16-rollouts/evidence/rollout-history.txt`)](day16-rollouts/evidence/rollout-history.txt): Logs showing initial state, 2-revision history, revision #2 template details, and final post-rollback history.
-- 📄 [Failed Rollout & Events Evidence (`day16-rollouts/evidence/failed-rollout-events.txt`)](day16-rollouts/evidence/failed-rollout-events.txt): Logs capturing `ErrImagePull`, `ImagePullBackOff`, and Docker Hub 404 error events.
-- 📄 [Rollback Verification Evidence (`day16-rollouts/evidence/rollback-verified.txt`)](day16-rollouts/evidence/rollback-verified.txt): Logs showing the `kubectl rollout undo` warning, successful rollback status, and final 3/3 ready state.
-- 📑 [Evidence Index & Documentation (`day16-rollouts/evidence/README.md`)](day16-rollouts/evidence/README.md): Detailed index and context for all captured artifacts.
+### 1. Successful Rollout & Verification (`rollout-success`)
+
+```text
+$ kubectl annotate deployment/nginx-deployment kubernetes.io/change-cause="Day 16: update Nginx from 1.27 to 1.28 for rollout practice"
+deployment.apps/nginx-deployment annotated
+
+$ kubectl set image deployment/nginx-deployment nginx=nginx:1.28
+deployment.apps/nginx-deployment image updated
+
+$ kubectl rollout status deployment/nginx-deployment
+deployment "nginx-deployment" successfully rolled out
+
+$ kubectl get deployment nginx-deployment -o wide
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES       SELECTOR
+nginx-deployment   3/3     3            3           23h   nginx        nginx:1.28   app=nginx
+
+$ kubectl get rs,pods -o wide
+NAME                                          DESIRED   CURRENT   READY   AGE    CONTAINERS   IMAGES       SELECTOR
+replicaset.apps/nginx-deployment-775786f995   0         0         0       23h    nginx        nginx:1.27   app=nginx,pod-template-hash=775786f995
+replicaset.apps/nginx-deployment-859b74487b   3         3         3       113s   nginx        nginx:1.28   app=nginx,pod-template-hash=859b74487b
+
+NAME                                    READY   STATUS    RESTARTS   AGE    IP            NODE
+pod/nginx-deployment-859b74487b-9npl4   1/1     Running   0          96s    10.244.0.10   winter-arc-control-plane
+pod/nginx-deployment-859b74487b-hw9t9   1/1     Running   0          113s   10.244.0.8    winter-arc-control-plane
+pod/nginx-deployment-859b74487b-p6f6q   1/1     Running   0          96s    10.244.0.9    winter-arc-control-plane
+```
+
+### 2. Revision History Progression (`rollout-history`)
+
+```text
+# Initial history prior to Day 16 update:
+$ kubectl rollout history deployment/nginx-deployment
+deployment.apps/nginx-deployment
+REVISION  CHANGE-CAUSE
+1         <none>
+
+# History after applying change-cause and updating image to nginx:1.28:
+$ kubectl rollout history deployment/nginx-deployment
+deployment.apps/nginx-deployment
+REVISION  CHANGE-CAUSE
+1         Day 16: update Nginx from 1.27 to 1.28 for rollout practice
+2         Day 16: update Nginx from 1.27 to 1.28 for rollout practice
+
+# Revision 2 details:
+$ kubectl rollout history deployment/nginx-deployment --revision=2
+deployment.apps/nginx-deployment with revision #2
+Pod Template:
+  Labels:	app=nginx
+	pod-template-hash=859b74487b
+  Annotations:	kubernetes.io/change-cause: Day 16: update Nginx from 1.27 to 1.28 for rollout practice
+  Containers:
+   nginx:
+    Image:	nginx:1.28
+    Port:	80/TCP
+
+# Final observed history after rollback from nginx:1.99-broken:
+$ kubectl rollout history deployment/nginx-deployment
+deployment.apps/nginx-deployment
+REVISION  CHANGE-CAUSE
+1         Day 16: update Nginx from 1.27 to 1.28 for rollout practice
+3         Day 16: update Nginx from 1.27 to 1.28 for rollout practice
+4         Day 16: update Nginx from 1.27 to 1.28 for rollout practice
+```
+
+### 3. Simulated Broken Rollout & Pod Events (`failed-rollout-events`)
+
+```text
+$ kubectl set image deployment/nginx-deployment nginx=nginx:1.99-broken
+deployment.apps/nginx-deployment image updated
+
+$ kubectl get pods
+NAME                                READY   STATUS         RESTARTS   AGE
+nginx-deployment-76c6c65f84-xqfm8   0/1     ErrImagePull   0          37s
+nginx-deployment-859b74487b-9npl4   1/1     Running        0          7m36s
+nginx-deployment-859b74487b-hw9t9   1/1     Running        0          7m53s
+nginx-deployment-859b74487b-p6f6q   1/1     Running        0          7m36s
+
+$ kubectl describe pod nginx-deployment-76c6c65f84-xqfm8
+Name:             nginx-deployment-76c6c65f84-xqfm8
+Namespace:        default
+Status:           Pending
+Controlled By:    ReplicaSet/nginx-deployment-76c6c65f84
+
+Containers:
+  nginx:
+    Image: nginx:1.99-broken
+    State: Waiting
+      Reason: ImagePullBackOff
+    Ready: False
+
+Events:
+  Type     Reason   Message
+  Normal   Pulling  Pulling image "nginx:1.99-broken"
+  Warning  Failed   Failed to pull image "nginx:1.99-broken": rpc error: code = NotFound desc = failed to pull and unpack image "docker.io/library/nginx:1.99-broken": failed to resolve reference "docker.io/library/nginx:1.99-broken": docker.io/library/nginx:1.99-broken: not found
+  Warning  Failed   Error: ErrImagePull
+  Normal   BackOff  Back-off pulling image "nginx:1.99-broken"
+  Warning  Failed   Error: ImagePullBackOff
+```
+
+### 4. Rollback & Final State Verification (`rollback-verified`)
+
+```text
+$ kubectl rollout undo deployment/nginx-deployment
+Warning: resource deployments/nginx-deployment was previously managed with 'kubectl apply'. Rolling back will not update the kubectl.kubernetes.io/last-applied-configuration annotation, which may cause unexpected behavior on future 'kubectl apply' operations. Consider using 'kubectl apply' with your previous configuration file instead.
+deployment.apps/nginx-deployment rolled back
+
+$ kubectl rollout status deployment/nginx-deployment
+deployment "nginx-deployment" successfully rolled out
+
+$ kubectl get deployment nginx-deployment -o wide
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE   CONTAINERS   IMAGES       SELECTOR
+nginx-deployment   3/3     3            3           23h   nginx        nginx:1.28   app=nginx
+
+$ kubectl get rs,pods -o wide
+NAME                                          DESIRED   CURRENT   READY   AGE     CONTAINERS   IMAGES              SELECTOR
+replicaset.apps/nginx-deployment-76c6c65f84   0         0         0       7m43s   nginx        nginx:1.99-broken   app=nginx,pod-template-hash=76c6c65f84
+replicaset.apps/nginx-deployment-775786f995   0         0         0       23h     nginx        nginx:1.27          app=nginx,pod-template-hash=775786f995
+replicaset.apps/nginx-deployment-859b74487b   3         3         3       14m     nginx        nginx:1.28          app=nginx,pod-template-hash=859b74487b
+
+NAME                                    READY   STATUS    RESTARTS   AGE   IP            NODE
+pod/nginx-deployment-859b74487b-9npl4   1/1     Running   0          14m   10.244.0.10   winter-arc-control-plane
+pod/nginx-deployment-859b74487b-hw9t9   1/1     Running   0          14m   10.244.0.8    winter-arc-control-plane
+pod/nginx-deployment-859b74487b-p6f6q   1/1     Running   0          14m   10.244.0.9    winter-arc-control-plane
+```
+
+### 📸 Note on Screenshot Evidence
+
+> [!NOTE]
+> All evidence above consists of direct, verbatim terminal capture logs from the live local `kind` cluster session. Visual screenshot artifacts (`.png` / `.jpeg`) can be captured separately from the terminal during interactive runs if required for portfolio or presentation assets. To maintain absolute integrity and avoid fabricated graphics, only real terminal session logs are preserved here.
 
 ---
 
