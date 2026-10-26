@@ -686,27 +686,15 @@ pod/nginx-deployment-859b74487b-hw9t9   1/1     Running   0          14m   10.24
 pod/nginx-deployment-859b74487b-p6f6q   1/1     Running   0          14m   10.244.0.9    winter-arc-control-plane
 ```
 
-### 📸 Note on Screenshot Evidence
-
-> [!NOTE]
-> All evidence above consists of direct, verbatim terminal capture logs from the live local `kind` cluster session. Visual screenshot artifacts (`.png` / `.jpeg`) can be captured separately from the terminal during interactive runs if required for portfolio or presentation assets. To maintain absolute integrity and avoid fabricated graphics, only real terminal session logs are preserved here.
-
 ---
 
-## ✅ Final Verification Checklist
+## 📌 Production Golden Rules for Rollouts
 
-- [x] Existing Deployment inspected on cluster `kind-winter-arc`.
-- [x] Initial image (`nginx:1.27`) and rollout strategy documented.
-- [x] Release annotation (`kubernetes.io/change-cause`) applied.
-- [x] Valid image update completed (`nginx:1.28`).
-- [x] Rollout status verified (`deployment "nginx-deployment" successfully rolled out`).
-- [x] Revision history inspected (`REVISION 1` & `REVISION 2`).
-- [x] Invalid image update tested (`nginx:1.99-broken`).
-- [x] Image-pull failure diagnosed using Events (`docker.io/library/nginx:1.99-broken: not found`).
-- [x] Rollback completed (`deployment.apps/nginx-deployment rolled back`).
-- [x] Final image (`nginx:1.28`) and three Ready replicas (`3/3`) verified.
-- [ ] Evidence screenshots captured separately if required for presentation or portfolio assets.
-- [ ] Files reviewed and committed to GitHub.
+1. **Never Deploy with `:latest`:** Always pin explicit version tags (`nginx:1.28`) or immutable Git commit SHAs (`my-app:abc1234`). Using mutable tags destroys revision traceability and makes rollbacks unpredictable.
+2. **Readiness Probes are Mandatory:** Rolling update safety depends entirely on accurate health checks. If a Pod does not define a `readinessProbe`, Kubernetes marks it "Ready" the millisecond the container process starts, potentially routing live traffic to an uninitialized application.
+3. **Use `minReadySeconds` for Warmup Stability:** Setting `spec.minReadySeconds: 15` ensures newly created Pods must remain healthy for at least 15 seconds before Kubernetes marks them available and begins terminating older replicas.
+4. **Prune Revisions with `revisionHistoryLimit`:** Keep `spec.revisionHistoryLimit` between 5 and 10. This provides enough historical ReplicaSets for rollback while preventing etcd metadata bloat.
+5. **Reconcile Git Post-Rollback:** Emergency rollbacks via `kubectl rollout undo` happen cluster-side. Always update the Git repository manifest to match the rolled-back state immediately afterward to prevent declarative CI/CD pipelines from re-deploying the broken release on the next `kubectl apply`.
 
 ---
 
