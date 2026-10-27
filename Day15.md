@@ -710,4 +710,4 @@ When managing Kubernetes workloads, issues naturally arise across networking, sc
 
 ---
 
-[← Day 14](Day14.md) | [Home](README.md)
+[← Day 14](Day14.md) | [Home](README.md) | [Day 16 →](Day16.md)

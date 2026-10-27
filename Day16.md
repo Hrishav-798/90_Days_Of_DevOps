@@ -698,4 +698,4 @@ pod/nginx-deployment-859b74487b-p6f6q   1/1     Running   0          14m   10.24
 
 ---
 
-[← Day 15](Day15.md) | [Home](Day01.md)
+[← Day 15](Day15.md) | [Home](Day01.md) | [Day 17 →](Day17.md)
