@@ -880,4 +880,4 @@ Even if labels match, a Pod will **not** be added to an EndpointSlice if its rea
 
 ---
 
-[← Day 16](Day16.md) | [Home](Day01.md)
+[← Day 16](Day16.md) | [Home](Day01.md) | [Day 18 →](Day18.md)
