@@ -792,4 +792,4 @@ web    1/1     1            1           6m18s
 
 ---
 
-[← Day 17](Day17.md) | [Home](Day01.md)
+[← Day 17](Day17.md) | [Home](Day01.md) | [Day 19 →](Day19.md)
