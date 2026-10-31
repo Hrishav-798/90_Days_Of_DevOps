@@ -414,4 +414,4 @@ Pod remained **Running** (readiness failure does **not** restart the container).
 
 ---
 
-*All commands, configuration snippets, and terminal outputs above are taken directly from the lab performed on 2026‑10‑30. No fabricated data has been introduced.*
+[← Day 19](Day19.md) | [Home](Day01.md) | [Day 21 →](Day21.md)

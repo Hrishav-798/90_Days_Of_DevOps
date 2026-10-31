@@ -804,4 +804,4 @@ kubectl delete namespace day21-security
 
 ---
 
-*All outputs, error logs, and verification commands in this document reflect live execution on the `kind-winter-arc` Kubernetes v1.36.1 cluster on 2026-10-31.*
+[← Day 20](Day20.md) | [Home](Day01.md) | [Day 22 →](Day22.md)
