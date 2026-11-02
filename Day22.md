@@ -1089,3 +1089,7 @@ These questions reflect authentic DevOps fresher and junior cloud engineer inter
 
 > **Congratulations on completing Day 22 of the 90 Days DevOps Winter Arc Challenge!**  
 > Your AWS account is now hardened, your billing guardrails are active, and you have established the architectural foundation required for real cloud deployments.
+
+---
+
+[← Day 21](Day21.md) | [Home](Day01.md) | [Day 23 →](Day23.md)
