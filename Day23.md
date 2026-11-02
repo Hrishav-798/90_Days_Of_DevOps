@@ -727,7 +727,6 @@ Review this checklist to confirm complete mastery of Day 23 topics:
 3. **Roles Over Keys for All Automation:** Modern DevOps practices completely deprecate long-term access keys for servers. Whether configuring EC2 instance profiles, Kubernetes Pod identities (IRSA), or GitHub Actions runners via OIDC, always leverage IAM Roles and temporary STS credentials.
 4. **Deny Trumps Allow:** When crafting security boundaries or emergency lockdown policies, remember that a single explicit `Deny` statement immediately shuts down all matching access across all users, regardless of existing allows.
 5. **Infrastructure-as-Code (IaC) Readiness:** The JSON policy structures mastered today form the exact syntax you will write in Terraform (`aws_iam_policy`, `aws_iam_role`) and Kubernetes security manifests in future modules.
-
 ---
 
-*Day 23 study notes completed and documented for the 90 Days of DevOps Winter Arc Challenge.*
+[← Day 22](Day22.md) | [Home](Day01.md) | [Day 24 →](Day24.md)
